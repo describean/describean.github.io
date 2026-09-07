@@ -71,7 +71,7 @@
   async function selectFiles(files) {
     if (!files.length || controller || loading) return;
     if (files.length !== 1) {
-      showError("Please choose one JPG at a time.");
+      showError("Please choose one image at a time.");
       return;
     }
 
@@ -84,7 +84,7 @@
     $("original-preview").removeAttribute("src");
     $("empty-upload").hidden = false;
     $("selected-upload").hidden = true;
-    dropZone.setAttribute("aria-label", "Select a JPG or JPEG image");
+    dropZone.setAttribute("aria-label", "Select a JPG, JPEG, JFIF, PNG, or WebP image");
     loading = true;
     setStatus("Opening your image…");
     updateControls();
@@ -106,7 +106,7 @@
       dropZone.setAttribute("aria-label", `Change image. Selected: ${originalFile.name}`);
       setStatus("Image ready. Set your target size, then compress.");
     } catch (error) {
-      showError(error.message || "This image could not be opened. Please try another JPG.");
+      showError(error.message || "This image could not be opened. Please try another image.");
       setStatus("");
     } finally {
       if (version === selectionVersion) {
@@ -166,7 +166,7 @@
       return;
     }
     if (!source) {
-      showError("Choose a JPG image first.");
+      showError("Choose an image first.");
       dropZone.focus();
       return;
     }
@@ -188,24 +188,32 @@
       });
       // Keep the download guarantee independent of the search implementation.
       if (result.blob.size > targetBytes) throw new Error("The result exceeds your target. Please try again.");
+      if (result.blob.type !== "image/jpeg") throw new Error("The JPG output could not be created. Please try again.");
       resultURL = URL.createObjectURL(result.blob);
       $("compressed-preview").src = resultURL;
       $("result-original").textContent = formatFileSize(originalFile.size);
       $("result-original").title = `${originalFile.size.toLocaleString("en")} bytes`;
       $("result-compressed").textContent = formatFileSize(result.blob.size);
       $("result-compressed").title = `${result.blob.size.toLocaleString("en")} bytes`;
-      const reduction = Math.max(0, (1 - result.blob.size / originalFile.size) * 100);
-      $("result-reduction").textContent = `${reduction.toFixed(1)}%`;
+      const reduction = (1 - result.blob.size / originalFile.size) * 100;
+      const increased = result.blob.size > originalFile.size;
+      $("result-change-label").textContent = increased ? "Size increase" : "Reduction";
+      $("result-reduction").textContent = `${Math.abs(reduction).toFixed(1)}%`;
       $("result-resolution").textContent = `${source.width} × ${source.height} → ${result.width} × ${result.height} px`;
       $("target-badge").textContent = `✓ Within ${targetBytes / 1000} KB`;
       const resized = result.width !== source.width || result.height !== source.height;
-      $("result-note").textContent = result.unchanged
+      const notes = [result.unchanged
         ? "Already within your target. Your original image is ready to download without any quality loss."
         : resized
           ? "Resolution reduced to meet your target. Image proportions are preserved."
-          : "Original resolution preserved. Your JPG is ready to download.";
+          : "Original resolution preserved. Your JPG is ready to download."];
+      if (source.format !== "jpeg") notes.push(`Converted from ${source.format === "png" ? "PNG" : "WebP"} to JPG. Transparent areas become white.`);
+      if (increased) notes.push("JPG conversion made this file larger, but it is still within your target size.");
+      $("result-note").textContent = notes.join(" ");
       $("result").hidden = false;
-      setStatus(result.unchanged ? "Your image already meets the target size." : `Done. Your image is ${reduction.toFixed(1)}% smaller.`);
+      setStatus(result.unchanged ? "Your image already meets the target size."
+        : increased ? "Done. Your JPG is within the target size."
+          : `Done. Your image is ${reduction.toFixed(1)}% smaller.`);
       $("result").focus({ preventScroll: true });
     } catch (error) {
       clearResult();

@@ -56,9 +56,10 @@
   async function compressJPEG(source, originalFile, targetBytes, { signal, onProgress = () => {} } = {}) {
     validateTarget(targetBytes);
     checkCancelled(signal);
-    if (originalFile.size <= targetBytes) {
+    // PNG/WebP must be encoded as JPEG even when the input already fits the budget.
+    if (source.format === "jpeg" && originalFile.size <= targetBytes) {
       return {
-        blob: originalFile, width: source.width, height: source.height,
+        blob: originalFile.slice(0, originalFile.size, "image/jpeg"), width: source.width, height: source.height,
         quality: null, unchanged: true,
       };
     }

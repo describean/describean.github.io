@@ -69,6 +69,8 @@ h1 span { color: var(--accent); white-space: nowrap; }
 .presets button[aria-pressed="true"] { background: #eef2ff; border-color: #bccbff; color: var(--accent); }
 .presets button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .presets button:disabled { opacity: .6; }
+.output-note { color: var(--muted); font-size: 11px; line-height: 1.6; margin: 14px 0 0; }
+.output-note strong { color: var(--ink); font-weight: 600; }
 .settings-bottom { margin-top: auto; padding-top: 26px; }
 .quality-note { display: flex; justify-content: center; align-items: center; gap: 6px; font-size: 10.5px; color: var(--muted); margin: 0 0 12px; }
 .quality-note svg { color: #8696ba; }

@@ -3,11 +3,12 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Compress a JPG or JPEG image to your target size in KB. Fast, free, and private. Your images never leave your device.">
+    <meta name="description" content="Compress JPG, JPEG, JFIF, PNG, and WebP images to your target size in KB. Download a JPG, with all processing kept on your device. Free and private.">
     <meta name="theme-color" content="#f7f8fc">
-    <title>Compress JPG to Target Size · describean</title>
+    <title>Compress Images to Target Size · Compress image free</title>
     <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./css/styles.css">
+    <script src="./js/image-formats.js" defer></script>
     <script src="./js/image-utils.js" defer></script>
     <script src="./js/jpeg-compressor.js" defer></script>
     <script src="./js/app.js" defer></script>
@@ -22,22 +23,22 @@
     <main class="page">
       <section class="intro" aria-labelledby="page-title">
         <span class="eyebrow"><span class="small-dot"></span> A little lighter. Just right.</span>
-        <h1 id="page-title">Compress JPG to <span>your target size.</span></h1>
-        <p>Big image, small file limit? Get your JPG under the size you need.</p>
+        <h1 id="page-title">Compress images to <span>your target size.</span></h1>
+        <p>Big image, small file limit? Get a JPG that fits the size you need.</p>
       </section>
 
       <form id="compress-form" class="tool-card" novalidate>
         <div class="tool-columns">
           <section class="upload-section" aria-labelledby="upload-heading">
             <h2 class="step-heading" id="upload-heading"><span class="step-number">1</span> Choose your image</h2>
-            <input id="file-input" type="file" accept=".jpg,.jpeg,image/jpeg" hidden>
-            <button id="drop-zone" class="drop-zone" type="button" aria-label="Select a JPG or JPEG image" aria-describedby="file-help privacy-note">
+            <input id="file-input" type="file" accept=".jpg,.jpeg,.jfif,.png,.webp,image/jpeg,image/png,image/webp" hidden>
+            <button id="drop-zone" class="drop-zone" type="button" aria-label="Select a JPG, JPEG, JFIF, PNG, or WebP image" aria-describedby="file-help privacy-note">
               <span id="empty-upload" class="upload-content">
                 <span class="upload-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8" cy="8" r="1.5"/><path d="m21 15-5-5L6 21M3 16l4-4 3 3"/></svg></span>
-                <span class="drop-title">Drop your JPG here</span>
+                <span class="drop-title">Drop your image here</span>
                 <span class="drop-subtitle">or choose one from your device</span>
                 <span class="select-label">Select Image <span aria-hidden="true">↑</span></span>
-                <span id="file-help" class="file-help">JPG / JPEG · Up to 50 MB · One image at a time</span>
+                <span id="file-help" class="file-help">JPG / JPEG / JFIF / PNG / WebP<br>Up to 50 MB · Still images only · One at a time</span>
               </span>
               <span id="selected-upload" class="upload-content" hidden>
                 <img id="original-preview" class="original-preview" alt="Selected original image">
@@ -67,6 +68,7 @@
               <button type="button" data-target="500" aria-pressed="false">500 KB</button>
             </div>
             <p id="target-error" class="field-error" hidden></p>
+            <p class="output-note" id="output-note"><strong>Output: JPG</strong><br>Transparent areas become white.</p>
             <div class="settings-bottom">
               <p class="quality-note"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z"/></svg> Quality adjusted automatically</p>
               <button id="compress-button" class="primary-button" type="submit" disabled><span id="compress-label">Compress Image</span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
@@ -83,7 +85,7 @@
 
       <section id="result" class="result-card" aria-labelledby="result-heading" tabindex="-1" hidden>
         <div class="result-header">
-          <div><span class="result-eyebrow">ALL SET</span><h2 id="result-heading">A lighter image. Ready to go.</h2></div>
+          <div><span class="result-eyebrow">ALL SET</span><h2 id="result-heading">Your image. Ready to go.</h2></div>
           <span id="target-badge" class="success-badge"></span>
         </div>
         <div class="result-content">
@@ -91,8 +93,8 @@
           <div class="result-info">
             <dl class="result-stats">
               <div><dt>Original</dt><dd id="result-original"></dd></div>
-              <div><dt>Compressed</dt><dd id="result-compressed" class="compressed-size"></dd></div>
-              <div><dt>Reduction</dt><dd id="result-reduction"></dd></div>
+              <div><dt>Output JPG</dt><dd id="result-compressed" class="compressed-size"></dd></div>
+              <div><dt id="result-change-label">Reduction</dt><dd id="result-reduction"></dd></div>
             </dl>
             <p class="resolution-line">Resolution <span id="result-resolution"></span></p>
             <p id="result-note" class="result-note"></p>
@@ -102,7 +104,7 @@
       </section>
 
       <div class="how-it-works" aria-label="How it works">
-        <p><span>01</span> Choose a JPG</p><span class="step-line" aria-hidden="true"></span>
+        <p><span>01</span> Choose an image</p><span class="step-line" aria-hidden="true"></span>
         <p><span>02</span> Set a size in KB</p><span class="step-line" aria-hidden="true"></span>
         <p><span>03</span> Download &amp; done</p>
       </div>

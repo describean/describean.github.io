@@ -1,4 +1,4 @@
-"""Real JPEG/browser integration checks; no dependencies are served to site users."""
+"""Real image/browser integration checks; no dependencies are served to site users."""
 import argparse
 import functools
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -9,6 +9,7 @@ import tempfile
 import threading
 
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,8 +40,43 @@ def fixtures(directory):
     Image.new("RGB", (20, 20), "green").save(disguised, format="PNG")
     damaged = directory / "damaged.jpg"
     damaged.write_bytes(b"\xff\xd8\xff\xe0broken")
+    png = directory / "test.graphic.PNG"
+    webp = directory / "test-photo.WebP"
+    jfif = directory / "test-photo.JFIF"
+    jfif.write_bytes(photo.read_bytes())
+    metadata = PngInfo()
+    metadata.add_text("Description", "acTL fcTL fdAT ANIM ANMF in text are not animation chunks.")
+    with Image.open(photo) as original:
+        original.save(png, pnginfo=metadata)
+        original.save(webp, quality=90)
+    transparent = Image.new("RGBA", (120, 80), (0, 0, 0, 0))
+    transparent.paste((255, 0, 0, 255), (40, 20, 80, 60))
+    transparent.paste((0, 0, 255, 128), (5, 20, 25, 60))
+    alpha_png = directory / "transparent.png"
+    alpha_webp = directory / "transparent.webp"
+    transparent.save(alpha_png, pnginfo=metadata)
+    transparent.save(alpha_webp, lossless=True, xmp=b"ANIM ANMF in metadata are not animation chunks.")
+    palette_png = directory / "palette.png"
+    palette = Image.new("P", (120, 80), 0)
+    palette.putpalette([0, 0, 0, 255, 0, 0, 0, 0, 255] + [0] * (768 - 9))
+    palette.paste(1, (40, 20, 80, 60))
+    palette.paste(2, (5, 20, 25, 60))
+    palette.save(palette_png, transparency=bytes([0, 255, 128]))
+    animated_png = directory / "animated.png"
+    animated_webp = directory / "animated.webp"
+    frames = [Image.new("RGBA", (80, 60), color) for color in ["red", "blue"]]
+    frames[0].save(animated_png, save_all=True, append_images=frames[1:], duration=100, loop=0)
+    frames[0].save(animated_webp, save_all=True, append_images=frames[1:], duration=100, loop=0, lossless=True)
+    damaged_png = directory / "damaged.png"
+    damaged_png.write_bytes(alpha_png.read_bytes()[:-8])
+    damaged_webp = directory / "damaged.webp"
+    damaged_webp.write_bytes(alpha_webp.read_bytes()[:-8])
     return {"photo": photo, "large": large, "tiny": tiny,
-            "portrait": portrait, "disguised": disguised, "damaged": damaged}
+            "portrait": portrait, "disguised": disguised, "damaged": damaged,
+            "png": png, "webp": webp, "jfif": jfif,
+            "alpha_png": alpha_png, "alpha_webp": alpha_webp, "palette_png": palette_png,
+            "animated_png": animated_png, "animated_webp": animated_webp,
+            "damaged_png": damaged_png, "damaged_webp": damaged_webp}
 
 
 def choose(page, path):
@@ -88,6 +124,9 @@ def run_browser(playwright, name, base_url, files):
     expect(page.locator("#compress-button")).to_be_disabled()
     expect(page.locator("#target-size")).to_have_value("200")
     expect(page.locator('[data-target="200"]')).to_have_attribute("aria-pressed", "true")
+    expect(page.locator("#page-title")).to_contain_text("Compress images")
+    expect(page.locator("#output-note")).to_contain_text("Output: JPG")
+    expect(page.locator("#file-help")).to_contain_text("JPG / JPEG / JFIF / PNG / WebP")
     assert_no_overflow(page)
     page.screenshot(path=str(OUTPUT / f"{name}-desktop.png"), full_page=True)
     page.wait_for_load_state("networkidle")
@@ -124,6 +163,45 @@ def run_browser(playwright, name, base_url, files):
     assert size == (20, 10)
     expect(page.locator("#result-reduction")).to_have_text("0.0%")
 
+    # All new inputs must produce true JPEG output at the requested byte ceiling.
+    for key in ["png", "webp", "jfif"]:
+        choose(page, files[key])
+        for target in [200, 50]:
+            data, (width, height) = compress_and_download(
+                page, target, f"{files[key].stem}-compressed.jpg")
+            assert width <= 1600 and height <= 1200
+            assert abs(width - height * 4 / 3) <= 2
+            print(f"  {key.upper()} → JPG, {target} KB: {len(data)} bytes, {width}×{height}", flush=True)
+
+    # Small PNG/WebP inputs must still convert; test alpha and palette transparency.
+    for key in ["alpha_png", "alpha_webp", "palette_png"]:
+        choose(page, files[key])
+        assert files[key].stat().st_size < 200_000
+        data, size = compress_and_download(page, 200, f"{files[key].stem}-compressed.jpg")
+        assert size == (120, 80)
+        assert len(data) > files[key].stat().st_size  # Conversion can enlarge a small input.
+        expect(page.locator("#result-change-label")).to_have_text("Size increase")
+        expect(page.locator("#result-note")).to_contain_text("still within your target size")
+        expect(page.locator("#status")).not_to_contain_text("smaller")
+        with Image.open(io.BytesIO(data)) as flattened:
+            assert min(flattened.getpixel((10, 10))) >= 245  # Transparent → white.
+            red = flattened.getpixel((60, 40))
+            assert red[0] > 240 and red[1] < 15 and red[2] < 15
+            blue = flattened.getpixel((15, 40))
+            assert 110 < blue[0] < 145 and 110 < blue[1] < 145 and blue[2] > 240
+    print("  Transparency: RGBA PNG, palette PNG, and WebP flattened to white", flush=True)
+
+    # JFIF with an unhelpful OS MIME type still uses the JPEG passthrough correctly.
+    page.locator("#file-input").set_input_files({
+        "name": "tiny.JFIF", "mimeType": "application/octet-stream", "buffer": files["tiny"].read_bytes(),
+    })
+    expect(page.locator("#file-name")).to_have_text("tiny.JFIF")
+    expect(page.locator("#compress-button")).to_be_enabled()
+    data, _ = compress_and_download(page, 200, "tiny-compressed.jpg")
+    assert data == files["tiny"].read_bytes()
+    expect(page.locator("#result-change-label")).to_have_text("Reduction")
+    expect(page.locator("#result-reduction")).to_have_text("0.0%")
+
     # Cancel a 12 MP encode, then verify the same image can still be compressed.
     choose(page, files["large"])
     page.locator('[data-target="50"]').click()
@@ -148,16 +226,18 @@ def run_browser(playwright, name, base_url, files):
         assert top[0] > top[2] + 80 and bottom[2] > bottom[0] + 80, (top, bottom)
 
     # Invalid selection clears stale results and leaves the UI recoverable.
-    for key in ["disguised", "damaged"]:
+    for key in ["disguised", "damaged", "damaged_png", "damaged_webp", "animated_png", "animated_webp"]:
         page.locator("#file-input").set_input_files(str(files[key]))
         expect(page.locator("#error-message")).to_be_visible()
         expect(page.locator("#result")).to_be_hidden()
         expect(page.locator("#compress-button")).to_be_disabled()
         expect(page.locator("#drop-zone")).to_be_enabled()
+        if key.startswith("animated"):
+            expect(page.locator("#error-message")).to_contain_text("Animated images are not supported")
     page.locator("#file-input").set_input_files({
-        "name": "wrong.png", "mimeType": "image/png", "buffer": files["disguised"].read_bytes(),
+        "name": "wrong.gif", "mimeType": "image/gif", "buffer": b"GIF89a",
     })
-    expect(page.locator("#error-message")).to_contain_text("JPG or JPEG")
+    expect(page.locator("#error-message")).to_contain_text("JPG, JPEG, JFIF, PNG, or WebP")
 
     # Exercise an actual DataTransfer/drop handler with the fixture's JPEG bytes.
     page.evaluate("""({bytes, name}) => {
@@ -171,10 +251,23 @@ def run_browser(playwright, name, base_url, files):
     expect(page.locator("#compress-button")).to_be_enabled()
     compress_and_download(page, 100, "dropped-compressed.jpg")
 
+    # New input formats also work through drop, with missing MIME type information.
+    for key in ["alpha_png", "alpha_webp"]:
+        page.evaluate("""({bytes, name}) => {
+          const transfer = new DataTransfer();
+          transfer.items.add(new File([new Uint8Array(bytes)], name));
+          document.querySelector('#drop-zone').dispatchEvent(new DragEvent('drop', {
+            bubbles: true, cancelable: true, dataTransfer: transfer
+          }));
+        }""", {"bytes": list(files[key].read_bytes()), "name": files[key].name})
+        expect(page.locator("#file-name")).to_have_text(files[key].name)
+        expect(page.locator("#compress-button")).to_be_enabled()
+        compress_and_download(page, 100, f"{files[key].stem}-compressed.jpg")
+
     # All image work so far must have made zero HTTP requests after page load.
     assert not [(method, url) for method, url in requests if url.startswith(("http:", "https:"))], requests
     context.set_offline(True)
-    choose(page, files["photo"])
+    choose(page, files["webp"])
     compress_and_download(page, 137, "test-photo-compressed.jpg")
     context.set_offline(False)
 
@@ -190,12 +283,12 @@ def run_browser(playwright, name, base_url, files):
 
     # No server, imports, or network are needed for the direct-open workflow.
     page.goto((ROOT / "index.html").as_uri())
-    choose(page, files["photo"])
-    compress_and_download(page, 200, "test-photo-compressed.jpg")
+    choose(page, files["png"])
+    compress_and_download(page, 200, "test.graphic-compressed.jpg")
     assert not errors, errors
     context.close()
     browser.close()
-    print(f"PASS {name}: limits, downloads, resize, validation, cancel, EXIF, drop, offline, file://, responsive", flush=True)
+    print(f"PASS {name}: JPG/JPEG/JFIF/PNG/WebP, limits, alpha, animation rejection, downloads, resize, validation, cancel, EXIF, drop, offline, file://, responsive", flush=True)
 
 
 def main():

@@ -4,6 +4,7 @@
 
   const MAX_FILE_BYTES = 50 * 1000 * 1000;
   const MAX_IMAGE_PIXELS = 40 * 1000 * 1000;
+  const { inspectImageFile } = window.Describean;
 
   function formatFileSize(bytes) {
     if (bytes < 1000) return `${bytes} B`;
@@ -13,35 +14,28 @@
   }
 
   async function loadImage(file) {
-    if (!file || !/\.jpe?g$/i.test(file.name)) {
-      throw new Error("Please choose a JPG or JPEG file. Other formats are not supported yet.");
+    if (file?.size > MAX_FILE_BYTES) {
+      throw new Error("This image is over 50 MB. Please choose a smaller image.");
     }
-    if (file.size > MAX_FILE_BYTES) {
-      throw new Error("This image is over 50 MB. Please choose a smaller JPG.");
-    }
-    // Check the actual file header: an extension or MIME type alone is not reliable.
-    const header = new Uint8Array(await file.slice(0, 3).arrayBuffer());
-    if (header[0] !== 0xff || header[1] !== 0xd8 || header[2] !== 0xff) {
-      throw new Error("This file is not a valid JPEG image. Please choose another JPG.");
-    }
-
-    const url = URL.createObjectURL(file);
+    const { format, mimeType } = await inspectImageFile(file);
+    // Normalize missing or inaccurate OS MIME types using the inspected file bytes.
+    const url = URL.createObjectURL(file.slice(0, file.size, mimeType));
     const image = new Image();
     try {
       await new Promise((resolve, reject) => {
         image.onload = resolve;
-        image.onerror = () => reject(new Error("This JPG could not be opened. It may be damaged. Please try another image."));
+        image.onerror = () => reject(new Error("This image could not be opened. It may be damaged or unsupported by your browser. Please try another image."));
         image.src = url;
       });
       // Modern browsers apply EXIF orientation when decoding and drawing the image.
       const width = image.naturalWidth;
       const height = image.naturalHeight;
-      if (!width || !height) throw new Error("This image has no readable pixels. Please try another JPG.");
+      if (!width || !height) throw new Error("This image has no readable pixels. Please try another image.");
       if (width * height > MAX_IMAGE_PIXELS) {
         throw new Error("This image is over 40 megapixels. Please choose a smaller image for browser processing.");
       }
       return {
-        image, width, height, url,
+        image, width, height, url, format,
         dispose() {
           URL.revokeObjectURL(url);
           image.src = "";
@@ -58,7 +52,7 @@
     canvas.width = Math.max(1, Math.round(width));
     canvas.height = Math.max(1, Math.round(height));
     const context = canvas.getContext("2d", { alpha: false });
-    if (!context) throw new Error("Your browser could not prepare this image. Please try a smaller JPG.");
+    if (!context) throw new Error("Your browser could not prepare this image. Please try a smaller image.");
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
     context.fillStyle = "#fff";
@@ -71,7 +65,7 @@
     return new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {
         if (!blob || !blob.size || blob.type !== "image/jpeg") {
-          reject(new Error("Your browser could not encode this JPG. Please try a smaller image or another browser."));
+          reject(new Error("Your browser could not create the JPG output. Please try a smaller image or another browser."));
           return;
         }
         resolve(blob);
@@ -80,7 +74,7 @@
   }
 
   function compressedFileName(name) {
-    return `${name.replace(/\.jpe?g$/i, "") || "image"}-compressed.jpg`;
+    return `${name.replace(/\.(jpe?g|jfif|png|webp)$/i, "") || "image"}-compressed.jpg`;
   }
 
   function downloadBlob(blob, name) {
