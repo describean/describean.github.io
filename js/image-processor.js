@@ -9,14 +9,23 @@
   // Bound canvas allocations on mobile while allowing 12 MP photos at full size.
   const MAX_CANVAS_PIXELS = 16 * 1000 * 1000;
   const MAX_CANVAS_EDGE = 8192;
+  const MAX_TARGET_BYTES = 50 * 1000 * 1000;
+  const MAX_UPSCALE_BYTES = 10 * 1000 * 1000;
+  const MAX_UPSCALE_SCALE = 4;
+  const MIN_UPSCALE_QUALITY = 0.8;
+  const UPSCALE_SEARCH_ITERATIONS = 8;
+
+  function getProcessingMode(originalBytes, targetBytes) {
+    return targetBytes > originalBytes ? "upscale" : targetBytes < originalBytes ? "compress" : "convert";
+  }
 
   function checkCancelled(signal) {
     if (signal?.aborted) throw new DOMException("Compression cancelled.", "AbortError");
   }
 
   function validateTarget(targetBytes) {
-    if (!Number.isSafeInteger(targetBytes) || targetBytes <= 0) {
-      throw new Error("Please enter a valid target file size.");
+    if (!Number.isSafeInteger(targetBytes) || targetBytes <= 0 || targetBytes > MAX_TARGET_BYTES) {
+      throw new Error("Please enter a target file size from 1 to 50,000 KB.");
     }
   }
 
@@ -103,5 +112,83 @@
     }
   }
 
-  window.Describean = { ...window.Describean, findBestQuality, compressImage };
+  async function upscaleImage(source, targetBytes, format, { signal, onProgress = () => {} } = {}) {
+    validateTarget(targetBytes);
+    if (targetBytes > MAX_UPSCALE_BYTES) throw new Error("Upscaling supports targets up to 10,000 KB (10 MB). Please lower the target.");
+    checkCancelled(signal);
+    const output = getOutputFormat(format);
+    const originalEdge = Math.max(source.width, source.height);
+    const maxEdge = Math.floor(Math.min(originalEdge * MAX_UPSCALE_SCALE, MAX_CANVAS_EDGE,
+      originalEdge * Math.sqrt(MAX_CANVAS_PIXELS / (source.width * source.height))));
+    if (maxEdge <= originalEdge) {
+      throw new Error("This image is already at the enlargement limit (16 MP or 8,192 px per side). Choose a smaller target to compress it instead.");
+    }
+    const canvas = document.createElement("canvas");
+
+    async function encodeAtEdge(edge) {
+      checkCancelled(signal);
+      const width = Math.max(1, Math.floor(source.width * edge / originalEdge));
+      const height = Math.max(1, Math.floor(source.height * edge / originalEdge));
+      onProgress({ width, height, upscaled: true });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      checkCancelled(signal);
+      resizeImage(source.image, width, height, canvas, { preserveAlpha: output.alpha });
+      const quality = format === "png" ? undefined : MIN_UPSCALE_QUALITY;
+      const blob = await encodeImage(canvas, format, quality);
+      checkCancelled(signal);
+      return { blob, width, height, edge, quality: quality ?? null };
+    }
+
+    try {
+      const largest = await encodeAtEdge(maxEdge);
+      let best = largest.blob.size <= targetBytes ? largest : null;
+      if (!best) {
+        // Search integer pixel dimensions, keeping only encoded candidates within budget.
+        // The quality floor avoids sacrificing most of the image quality to add pixels.
+        let low = originalEdge + 1;
+        let high = maxEdge - 1;
+        // Bounded so a 16 MP upscale cannot spend an unbounded number of
+        // full-resolution encodes; it still lands within about a dozen pixels.
+        for (let iteration = 0; iteration < UPSCALE_SEARCH_ITERATIONS && low <= high; iteration += 1) {
+          const edge = Math.floor((low + high) / 2);
+          const candidate = await encodeAtEdge(edge);
+          if (candidate.blob.size <= targetBytes) {
+            best = candidate;
+            low = edge + 1;
+          } else {
+            high = edge - 1;
+          }
+        }
+      }
+      if (!best) {
+        throw new Error(`This image cannot be enlarged as ${output.label} within this target. Try a higher target (up to 10 MB) or another output format.`);
+      }
+      let optimized = best;
+      if (format !== "png") {
+        resizeImage(source.image, best.width, best.height, canvas, { preserveAlpha: output.alpha });
+        optimized = await findBestQuality(canvas, targetBytes, format, { signal, minQuality: MIN_UPSCALE_QUALITY }) || best;
+      }
+      checkCancelled(signal);
+      return {
+        ...best, ...optimized, format, unchanged: false, mode: "upscale",
+        limitReached: best.edge === maxEdge,
+      };
+    } finally {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+  }
+
+  async function processImage(source, originalFile, targetBytes, format, options = {}) {
+    validateTarget(targetBytes);
+    const mode = getProcessingMode(originalFile.size, targetBytes);
+    if (mode === "upscale") return upscaleImage(source, targetBytes, format, options);
+    const result = await compressImage(source, originalFile, targetBytes, format, options);
+    return { ...result, mode };
+  }
+
+  window.Describean = {
+    ...window.Describean, findBestQuality, compressImage, upscaleImage, processImage,
+    getProcessingMode, MAX_UPSCALE_BYTES,
+  };
 })();

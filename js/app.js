@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const { loadImage, formatFileSize, compressImage, outputFileName, downloadBlob, getOutputFormat, supportsOutputFormat } = window.Describean;
+  const { loadImage, formatFileSize, processImage, outputFileName, downloadBlob, getOutputFormat, supportsOutputFormat, getProcessingMode, MAX_UPSCALE_BYTES } = window.Describean;
   const $ = (id) => document.getElementById(id);
   const form = $("compress-form");
   const input = $("file-input");
@@ -18,6 +18,10 @@
   let selectionVersion = 0;
   let dragDepth = 0;
 
+  function selectedMode() {
+    return originalFile ? getProcessingMode(originalFile.size, Number(targetInput.value) * 1000) : null;
+  }
+
   function updateControls() {
     const busy = loading || Boolean(controller);
     input.disabled = busy;
@@ -26,7 +30,15 @@
     formatInput.disabled = busy;
     presets.forEach((button) => { button.disabled = busy; });
     $("compress-button").disabled = busy || !source;
-    $("compress-label").textContent = controller ? "Compressing…" : loading ? "Opening image…" : "Compress Image";
+    const mode = selectedMode();
+    $("compress-label").textContent = loading ? "Opening image…"
+      : controller ? (mode === "upscale" ? "Upscaling…" : "Processing…")
+        : mode === "upscale" ? "Upscale Image" : mode === "compress" ? "Compress Image" : "Process Image";
+    $("mode-note").hidden = !mode;
+    $("mode-note").textContent = mode === "upscale"
+      ? "Upscale: larger target, larger resolution. Up to 4× per side, 16 MP, 8,192 px per side, and a 10 MB target."
+      : mode === "compress" ? "Compress: smaller target. Quality and resolution adjust to fit."
+        : "Same size limit: keep the image or convert to your selected format.";
     $("cancel-button").hidden = !controller;
     form.setAttribute("aria-busy", String(busy));
   }
@@ -51,11 +63,15 @@
 
   function readTarget(reportError = true) {
     const value = Number(targetInput.value);
-    const valid = targetInput.value.trim() !== "" && Number.isSafeInteger(value) && value >= 1 && value <= 50_000;
+    const validNumber = targetInput.value.trim() !== "" && Number.isSafeInteger(value) && value >= 1 && value <= 50_000;
+    const exceedsUpscaleLimit = originalFile && value * 1000 > originalFile.size && value * 1000 > MAX_UPSCALE_BYTES;
+    const valid = validNumber && !exceedsUpscaleLimit;
     if (reportError) {
       targetInput.setAttribute("aria-invalid", String(!valid));
       $("target-error").hidden = valid;
-      $("target-error").textContent = valid ? "" : "Enter a whole number from 1 to 50,000 KB.";
+      $("target-error").textContent = valid ? "" : !validNumber
+        ? "Enter a whole number from 1 to 50,000 KB."
+        : "Upscaling supports targets up to 10,000 KB (10 MB). Please lower the target.";
     }
     return valid ? value * 1000 : null;
   }
@@ -68,6 +84,7 @@
     presets.forEach((button) => {
       button.setAttribute("aria-pressed", String(Number(button.dataset.target) === Number(targetInput.value)));
     });
+    updateControls();
   }
 
   function formatChanged() {
@@ -102,6 +119,7 @@
     if (source) source.dispose();
     source = null;
     originalFile = null;
+    readTarget();
     $("original-preview").removeAttribute("src");
     $("empty-upload").hidden = false;
     $("selected-upload").hidden = true;
@@ -125,7 +143,8 @@
       $("empty-upload").hidden = true;
       $("selected-upload").hidden = false;
       dropZone.setAttribute("aria-label", `Change image. Selected: ${originalFile.name}`);
-      setStatus("Image ready. Set your target size, then compress.");
+      readTarget();
+      setStatus("Image ready. Set your target size and output format.");
     } catch (error) {
       showError(error.message || "This image could not be opened. Please try another image.");
       setStatus("");
@@ -196,15 +215,15 @@
     showError();
     controller = new AbortController();
     updateControls();
-    setStatus("Finding the best quality for your target size…");
+    setStatus(selectedMode() === "upscale" ? "Finding a larger resolution within your target…" : "Finding the best quality for your target size…");
 
     try {
       const format = formatInput.value;
       const output = getOutputFormat(format);
-      result = await compressImage(source, originalFile, targetBytes, format, {
+      result = await processImage(source, originalFile, targetBytes, format, {
         signal: controller.signal,
-        onProgress({ width, height, resized }) {
-          setStatus(resized
+        onProgress({ width, height, resized, upscaled }) {
+          setStatus(upscaled ? `Trying a larger resolution: ${width} × ${height} px…` : resized
             ? `Adjusting to ${width} × ${height} px and finding the best quality…`
             : "Finding the best quality at your original resolution…");
         },
@@ -220,31 +239,34 @@
       $("result-compressed").title = `${result.blob.size.toLocaleString("en")} bytes`;
       $("result-format-label").textContent = `Output ${output.label}`;
       const reduction = (1 - result.blob.size / originalFile.size) * 100;
+      // Only an upscale can grow the file: other modes cap it at or below the original.
       const increased = result.blob.size > originalFile.size;
       $("result-change-label").textContent = increased ? "Size increase" : "Reduction";
       $("result-reduction").textContent = `${Math.abs(reduction).toFixed(1)}%`;
       $("result-resolution").textContent = `${source.width} × ${source.height} → ${result.width} × ${result.height} px`;
       $("target-badge").textContent = `✓ Within ${targetBytes / 1000} KB`;
       const resized = result.width !== source.width || result.height !== source.height;
-      const notes = [result.unchanged
-        ? "Already within your target. Your original image is ready to download without any quality loss."
-        : resized
-          ? "Resolution reduced to meet your target. Image proportions are preserved."
-          : `Original resolution preserved. Your ${output.label} is ready to download.`];
+      const notes = [result.mode === "upscale"
+        ? "Resolution enlarged using browser interpolation. This does not restore missing detail."
+        : result.unchanged
+          ? "Already within your target. Your original image is ready to download without any quality loss."
+          : resized
+            ? "Resolution reduced to meet your target. Image proportions are preserved."
+            : `Original resolution preserved. Your ${output.label} is ready to download.`];
       if (source.format !== format) notes.push(`Converted from ${getOutputFormat(source.format).label} to ${output.label}.`);
       if (format === "jpeg" && source.format !== "jpeg") notes.push("Transparent areas became white.");
       if (output.alpha) notes.push("Transparency is preserved.");
-      if (increased) notes.push("Format conversion made this file larger, but it is still within your target size.");
+      if (result.limitReached) notes.push("Maximum allowed enlargement reached. The file may be smaller than your target.");
       $("result-note").textContent = notes.join(" ");
       $("result").hidden = false;
-      setStatus(result.unchanged ? "Your image already meets the target size."
-        : increased ? `Done. Your ${output.label} is within the target size.`
+      setStatus(result.mode === "upscale" ? `Done. Upscaled to ${result.width} × ${result.height} px within your target.`
+        : result.unchanged ? "Your image already meets the target size."
           : `Done. Your image is ${reduction.toFixed(1)}% smaller.`);
       $("result").focus({ preventScroll: true });
     } catch (error) {
       clearResult();
       if (error.name === "AbortError") {
-        setStatus("Compression cancelled. Your image is ready to try again.");
+        setStatus("Processing cancelled. Your image is ready to try again.");
       } else {
         setStatus("");
         showError(error.message || "Something went wrong. Please try a smaller image.");
@@ -257,7 +279,7 @@
 
   $("cancel-button").addEventListener("click", () => controller?.abort());
   $("download-button").addEventListener("click", () => {
-    if (result && originalFile) downloadBlob(result.blob, outputFileName(originalFile.name, result.format));
+    if (result && originalFile) downloadBlob(result.blob, outputFileName(originalFile.name, result.format, result.mode === "upscale" ? "upscaled" : "compressed"));
   });
 
   updateControls();

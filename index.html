@@ -3,9 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Compress JPG, JPEG, JFIF, PNG, and WebP images to your target size in KB. Choose JPG, PNG, or WebP output. Free, private, and entirely in your browser.">
+    <meta name="description" content="Compress or upscale JPG, JPEG, JFIF, PNG, and WebP images with a target size in KB. Choose JPG, PNG, or WebP output. Free and private browser processing.">
     <meta name="theme-color" content="#f7f8fc">
-    <title>Compress Images to Target Size · Compress image free</title>
+    <title>Compress or Upscale Images · Compress image free</title>
     <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./css/styles.css">
     <script src="./js/image-formats.js" defer></script>
@@ -22,9 +22,9 @@
 
     <main class="page">
       <section class="intro" aria-labelledby="page-title">
-        <span class="eyebrow"><span class="small-dot"></span> A little lighter. Just right.</span>
-        <h1 id="page-title">Compress images to <span>your target size.</span></h1>
-        <p>Your image, your format. Get a file that fits the size you need.</p>
+        <span class="eyebrow"><span class="small-dot"></span> Smaller files. Bigger possibilities.</span>
+        <h1 id="page-title">Compress or upscale <span>your images.</span></h1>
+        <p>Set a smaller target to compress, or a larger target to upscale.</p>
       </section>
 
       <form id="compress-form" class="tool-card" novalidate>
@@ -57,10 +57,11 @@
             <h2 class="step-heading" id="settings-heading"><span class="step-number">2</span> Set your file size</h2>
             <label class="input-label" for="target-size">Target size</label>
             <div class="size-input-wrap">
-              <input id="target-size" name="targetSize" type="number" min="1" max="50000" step="1" inputmode="numeric" value="200" required aria-describedby="target-help target-error">
+              <input id="target-size" name="targetSize" type="number" min="1" max="50000" step="1" inputmode="numeric" value="200" required aria-describedby="target-help mode-note target-error">
               <span class="input-unit">KB</span>
             </div>
-            <p class="target-help" id="target-help">Your result will be at or below this size.</p>
+            <p class="target-help" id="target-help">A file size ceiling, not an exact output size.</p>
+            <p class="mode-note" id="mode-note" role="status" hidden></p>
             <div class="presets" role="group" aria-label="Quick target sizes">
               <button type="button" data-target="50" aria-pressed="false">50 KB</button>
               <button type="button" data-target="100" aria-pressed="false">100 KB</button>
@@ -76,8 +77,8 @@
             </select>
             <p class="output-note" id="output-note">Transparent areas become white.</p>
             <div class="settings-bottom">
-              <p class="quality-note"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z"/></svg> Quality adjusted automatically</p>
-              <button id="compress-button" class="primary-button" type="submit" disabled><span id="compress-label">Compress Image</span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+              <p class="quality-note"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z"/></svg> Size adjusted automatically</p>
+              <button id="compress-button" class="primary-button" type="submit" disabled><span id="compress-label">Process Image</span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
               <p class="button-note">Free to use. No sign-up. <span>1 KB = 1,000 bytes.</span></p>
             </div>
           </section>
@@ -95,7 +96,7 @@
           <span id="target-badge" class="success-badge"></span>
         </div>
         <div class="result-content">
-          <div class="result-preview-wrap"><img id="compressed-preview" class="result-preview" alt="Compressed image preview"></div>
+          <div class="result-preview-wrap"><img id="compressed-preview" class="result-preview" alt="Processed image preview"></div>
           <div class="result-info">
             <dl class="result-stats">
               <div><dt>Original</dt><dd id="result-original"></dd></div>
@@ -114,7 +115,7 @@
         <p><span>02</span> Set a size in KB</p><span class="step-line" aria-hidden="true"></span>
         <p><span>03</span> Download &amp; done</p>
       </div>
-      <noscript><p class="error-message">Please enable JavaScript to compress images in your browser.</p></noscript>
+      <noscript><p class="error-message">Please enable JavaScript to compress or upscale images in your browser.</p></noscript>
     </main>
 
     <footer class="site-footer"><span class="footer-local"><span class="small-dot"></span> Made to work locally</span></footer>

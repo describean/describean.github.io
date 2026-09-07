@@ -21,6 +21,16 @@ class QuietHandler(SimpleHTTPRequestHandler):
         pass
 
 
+def gradient(width, height):
+    """A smooth RGB ramp: cheap to encode even when upscaled to the 16 MP ceiling."""
+    ramp = Image.linear_gradient("L")
+    return Image.merge("RGB", (
+        ramp.resize((width, height)),
+        ramp.rotate(90).resize((width, height)),
+        ramp.transpose(Image.Transpose.FLIP_LEFT_RIGHT).resize((width, height)),
+    ))
+
+
 def fixtures(directory):
     rng = random.Random(42)
     photo = directory / "test-photo.JPEG"
@@ -29,6 +39,17 @@ def fixtures(directory):
     Image.frombytes("RGB", (4000, 3000), rng.randbytes(4000 * 3000 * 3)).save(large, quality=90)
     tiny = directory / "tiny.jpg"
     Image.new("RGB", (20, 10), "#5588cc").save(tiny)
+    # Smooth gradients so an upscaled 16 MP encode stays small enough to test quickly.
+    wide = directory / "wide.jpg"
+    gradient(4000, 200).save(wide, quality=90)
+    smooth = directory / "smooth.jpg"
+    gradient(3000, 2000).save(smooth, quality=90)
+    oversized = directory / "oversized.jpg"  # 16.2 MP: already past the enlargement ceiling.
+    gradient(4500, 3600).save(oversized, quality=85)
+    # An exact whole-KB size is the only way to reach the convert-mode passthrough.
+    exact = directory / "exact.jpg"
+    exact.write_bytes(tiny.read_bytes().ljust(2000, b"\x00"))
+    assert exact.stat().st_size == 2000
     portrait = directory / "oriented.jpg"
     image = Image.new("RGB", (120, 80), "red")
     image.paste("blue", (60, 0, 120, 80))
@@ -72,6 +93,7 @@ def fixtures(directory):
     damaged_webp = directory / "damaged.webp"
     damaged_webp.write_bytes(alpha_webp.read_bytes()[:-8])
     return {"photo": photo, "large": large, "tiny": tiny,
+            "wide": wide, "smooth": smooth, "oversized": oversized, "exact": exact,
             "portrait": portrait, "disguised": disguised, "damaged": damaged,
             "png": png, "webp": webp, "jfif": jfif,
             "alpha_png": alpha_png, "alpha_webp": alpha_webp, "palette_png": palette_png,
@@ -85,7 +107,7 @@ def choose(page, path):
     expect(page.locator("#compress-button")).to_be_enabled()
 
 
-def compress_and_download(page, target, expected_name, *, preset=False, output_format="jpeg"):
+def process_and_download(page, target, expected_name, *, preset=False, output_format="jpeg"):
     page.locator("#output-format").select_option(output_format)
     if preset:
         page.locator(f'[data-target="{target}"]').click()
@@ -104,6 +126,9 @@ def compress_and_download(page, target, expected_name, *, preset=False, output_f
         assert image.format == {"jpeg": "JPEG", "png": "PNG", "webp": "WEBP"}[output_format]
         image.load()
         dimensions = image.size
+    # Compressing and upscaling share one canvas ceiling; no result may exceed it.
+    assert dimensions[0] * dimensions[1] <= 16_000_000, dimensions
+    assert max(dimensions) <= 8192, dimensions
     return data, dimensions
 
 
@@ -125,9 +150,12 @@ def run_browser(playwright, name, base_url, files):
     expect(page.locator("#compress-button")).to_be_disabled()
     expect(page.locator("#target-size")).to_have_value("200")
     expect(page.locator('[data-target="200"]')).to_have_attribute("aria-pressed", "true")
-    expect(page.locator("#page-title")).to_contain_text("Compress images")
+    expect(page.locator("#page-title")).to_contain_text("Compress or upscale")
     expect(page.locator("#output-format")).to_have_value("jpeg")
     expect(page.locator("#file-help")).to_contain_text("JPG / JPEG / JFIF / PNG / WebP")
+    # With no image chosen there is no mode yet, so no mode note and a neutral label.
+    expect(page.locator("#mode-note")).to_be_hidden()
+    expect(page.locator("#compress-label")).to_have_text("Process Image")
     assert_no_overflow(page)
     page.screenshot(path=str(OUTPUT / f"{name}-desktop.png"), full_page=True)
     page.wait_for_load_state("networkidle")
@@ -135,8 +163,10 @@ def run_browser(playwright, name, base_url, files):
 
     # Actual encoder output: preset budgets, fixed resolution and resize fallback.
     choose(page, files["photo"])
+    expect(page.locator("#compress-label")).to_have_text("Compress Image")
+    expect(page.locator("#mode-note")).to_contain_text("Compress")
     for target in [500, 200, 100, 50, 1]:
-        data, (width, height) = compress_and_download(
+        data, (width, height) = process_and_download(
             page, target, "test-photo-compressed.jpg", preset=target != 1)
         assert width <= 1600 and height <= 1200
         assert abs(width - height * 4 / 3) <= 2
@@ -157,38 +187,89 @@ def run_browser(playwright, name, base_url, files):
     page.locator('[data-target="200"]').click()
     expect(page.locator("#target-error")).to_be_hidden()
 
-    # Already-small input is downloaded byte-for-byte, without lossy re-encoding.
+    # The 10 MB ceiling applies to upscaling only, so it depends on the chosen file.
     choose(page, files["tiny"])
-    data, size = compress_and_download(page, 200, "tiny-compressed.jpg")
-    assert data == files["tiny"].read_bytes()
+    page.locator("#target-size").fill("10001")
+    expect(page.locator("#target-error")).to_contain_text("Upscaling supports targets up to 10,000 KB")
+    expect(page.locator("#target-size")).to_have_attribute("aria-invalid", "true")
+    page.locator("#compress-button").click()
+    expect(page.locator("#result")).to_be_hidden()
+    page.locator("#target-size").fill("10000")  # Exactly at the ceiling stays valid.
+    expect(page.locator("#target-error")).to_be_hidden()
+
+    # A target equal to the original size converts without touching the pixels.
+    choose(page, files["exact"])
+    page.locator("#target-size").fill("2")
+    expect(page.locator("#mode-note")).to_contain_text("Same size limit")
+    expect(page.locator("#compress-label")).to_have_text("Process Image")
+    data, size = process_and_download(page, 2, "exact-compressed.jpg")
+    assert data == files["exact"].read_bytes()
     assert size == (20, 10)
     expect(page.locator("#result-reduction")).to_have_text("0.0%")
+    expect(page.locator("#result-note")).to_contain_text("without any quality loss")
+
+    # Upscale mode: a target above the original size enlarges the resolution.
+    choose(page, files["tiny"])
+    expect(page.locator("#compress-label")).to_have_text("Upscale Image")
+    expect(page.locator("#mode-note")).to_contain_text("Upscale")
+    data, size = process_and_download(page, 200, "tiny-upscaled.jpg")
+    assert size == (80, 40), size  # 4× per side is the binding cap for a 20 × 10 input.
+    expect(page.locator("#result-resolution")).to_have_text("20 × 10 → 80 × 40 px")
+    expect(page.locator("#result-note")).to_contain_text("does not restore missing detail")
+    expect(page.locator("#result-note")).to_contain_text("Maximum allowed enlargement reached")
+    expect(page.locator("#status")).to_contain_text("Upscaled to 80 × 40")
+    expect(page.locator("#target-badge")).to_have_text("✓ Within 200 KB")
+    print(f"  4× cap: {len(data)} bytes, {size[0]}×{size[1]}", flush=True)
+
+    # The 8,192 px edge cap binds before 4× on a very wide image.
+    choose(page, files["wide"])
+    data, size = process_and_download(page, 2000, "wide-upscaled.jpg")
+    assert size == (8192, 409), size
+    expect(page.locator("#result-note")).to_contain_text("Maximum allowed enlargement reached")
+    print(f"  8,192 px cap: {len(data)} bytes, {size[0]}×{size[1]}", flush=True)
+
+    # The 16 MP cap binds before 4× on a 6 MP image.
+    choose(page, files["smooth"])
+    data, size = process_and_download(page, 5000, "smooth-upscaled.jpg")
+    assert size == (4898, 3265), size
+    assert 15_000_000 < size[0] * size[1] <= 16_000_000, size
+    print(f"  16 MP cap: {len(data)} bytes, {size[0]}×{size[1]}", flush=True)
+
+    # An input already past the ceiling explains itself instead of silently doing nothing.
+    choose(page, files["oversized"])
+    page.locator("#target-size").fill("9000")
+    page.locator("#compress-button").click()
+    expect(page.locator("#error-message")).to_contain_text("already at the enlargement limit", timeout=60_000)
+    expect(page.locator("#result")).to_be_hidden()
+    expect(page.locator("#compress-button")).to_be_enabled()
 
     # All new inputs must produce true JPEG output at the requested byte ceiling.
     for key in ["png", "webp", "jfif"]:
         choose(page, files[key])
         for target in [200, 50]:
-            data, (width, height) = compress_and_download(
+            data, (width, height) = process_and_download(
                 page, target, f"{files[key].stem}-compressed.jpg")
             assert width <= 1600 and height <= 1200
             assert abs(width - height * 4 / 3) <= 2
             print(f"  {key.upper()} → JPG, {target} KB: {len(data)} bytes, {width}×{height}", flush=True)
 
-    # Small PNG/WebP inputs must still convert; test alpha and palette transparency.
+    # Small PNG/WebP inputs are below 200 KB, so this also exercises upscaling to JPG.
+    # Sample points scale with the result so the checks do not assume a fixed factor.
     for key in ["alpha_png", "alpha_webp", "palette_png"]:
         choose(page, files[key])
         assert files[key].stat().st_size < 200_000
-        data, size = compress_and_download(page, 200, f"{files[key].stem}-compressed.jpg")
-        assert size == (120, 80)
-        assert len(data) > files[key].stat().st_size  # Conversion can enlarge a small input.
+        data, size = process_and_download(page, 200, f"{files[key].stem}-upscaled.jpg")
+        assert size == (480, 320), size  # 4× per side, well inside 16 MP.
+        assert len(data) > files[key].stat().st_size  # Upscaling enlarges a small input.
         expect(page.locator("#result-change-label")).to_have_text("Size increase")
-        expect(page.locator("#result-note")).to_contain_text("still within your target size")
+        expect(page.locator("#result-note")).to_contain_text("does not restore missing detail")
         expect(page.locator("#status")).not_to_contain_text("smaller")
+        scale = size[0] // 120
         with Image.open(io.BytesIO(data)) as flattened:
-            assert min(flattened.getpixel((10, 10))) >= 245  # Transparent → white.
-            red = flattened.getpixel((60, 40))
+            assert min(flattened.getpixel((10 * scale, 10 * scale))) >= 245  # Transparent → white.
+            red = flattened.getpixel((60 * scale, 40 * scale))
             assert red[0] > 240 and red[1] < 15 and red[2] < 15
-            blue = flattened.getpixel((15, 40))
+            blue = flattened.getpixel((15 * scale, 40 * scale))
             assert 110 < blue[0] < 145 and 110 < blue[1] < 145 and blue[2] > 240
     print("  Transparency: RGBA PNG, palette PNG, and WebP flattened to white", flush=True)
 
@@ -196,31 +277,33 @@ def run_browser(playwright, name, base_url, files):
     for key in ["photo", "png", "webp", "jfif"]:
         choose(page, files[key])
         for output_format in ["png", "webp"]:
-            data, size = compress_and_download(page, 50, f"{files[key].stem}-compressed.{output_format}", output_format=output_format)
+            data, size = process_and_download(page, 50, f"{files[key].stem}-compressed.{output_format}", output_format=output_format)
             assert size[0] <= 1600 and size[1] <= 1200
             print(f"  {key} → {output_format}: {len(data)} bytes, {size[0]}×{size[1]}", flush=True)
-    # Cross-format alpha encoding, not merely same-format passthrough.
+    # Cross-format alpha encoding, not merely same-format passthrough. PNG output also
+    # covers the lossless upscale path, which has no quality step to fall back on.
     for key, output_format in [("alpha_png", "webp"), ("alpha_webp", "png"), ("palette_png", "webp")]:
         choose(page, files[key])
-        data, size = compress_and_download(page, 200, f"{files[key].stem}-compressed.{output_format}", output_format=output_format)
-        assert size == (120, 80)
+        data, size = process_and_download(page, 200, f"{files[key].stem}-upscaled.{output_format}", output_format=output_format)
+        assert size == (480, 320), size
+        scale = size[0] // 120
         with Image.open(io.BytesIO(data)) as converted:
             rgba = converted.convert("RGBA")
-            assert rgba.getpixel((10, 10))[3] == 0
-            assert 120 <= rgba.getpixel((15, 40))[3] <= 135
-            assert rgba.getpixel((60, 40))[3] == 255
+            assert rgba.getpixel((10 * scale, 10 * scale))[3] == 0
+            assert 120 <= rgba.getpixel((15 * scale, 40 * scale))[3] <= 135
+            assert rgba.getpixel((60 * scale, 40 * scale))[3] == 255
     page.locator("#output-format").select_option("jpeg")
     expect(page.locator("#result")).to_be_hidden()
     expect(page.locator("#output-note")).to_contain_text("become white")
 
     # JFIF with an unhelpful OS MIME type still uses the JPEG passthrough correctly.
     page.locator("#file-input").set_input_files({
-        "name": "tiny.JFIF", "mimeType": "application/octet-stream", "buffer": files["tiny"].read_bytes(),
+        "name": "exact.JFIF", "mimeType": "application/octet-stream", "buffer": files["exact"].read_bytes(),
     })
-    expect(page.locator("#file-name")).to_have_text("tiny.JFIF")
+    expect(page.locator("#file-name")).to_have_text("exact.JFIF")
     expect(page.locator("#compress-button")).to_be_enabled()
-    data, _ = compress_and_download(page, 200, "tiny-compressed.jpg")
-    assert data == files["tiny"].read_bytes()
+    data, _ = process_and_download(page, 2, "exact-compressed.jpg")
+    assert data == files["exact"].read_bytes()
     expect(page.locator("#result-change-label")).to_have_text("Reduction")
     expect(page.locator("#result-reduction")).to_have_text("0.0%")
 
@@ -234,14 +317,14 @@ def run_browser(playwright, name, base_url, files):
     expect(page.locator("#status")).to_contain_text("cancelled", timeout=30_000)
     expect(page.locator("#result")).to_be_hidden()
     expect(page.locator("#compress-button")).to_be_enabled()
-    data, size = compress_and_download(page, 200, "large-compressed.jpg")
+    data, size = process_and_download(page, 200, "large-compressed.jpg")
     assert size[0] < 4000
     print(f"  12 MP: {len(data)} bytes, {size[0]}×{size[1]}", flush=True)
 
     # EXIF rotation must be reflected in dimensions and actual output pixels.
     choose(page, files["portrait"])
     expect(page.locator("#file-details")).to_contain_text("80 × 120")
-    data, size = compress_and_download(page, 1, "oriented-compressed.jpg")
+    data, size = process_and_download(page, 1, "oriented-compressed.jpg")
     assert size == (80, 120), size
     with Image.open(io.BytesIO(data)) as oriented:
         top = oriented.getpixel((40, 20))
@@ -272,7 +355,7 @@ def run_browser(playwright, name, base_url, files):
     }""", {"bytes": list(files["tiny"].read_bytes()), "name": "dropped.jpg"})
     expect(page.locator("#file-name")).to_have_text("dropped.jpg")
     expect(page.locator("#compress-button")).to_be_enabled()
-    compress_and_download(page, 100, "dropped-compressed.jpg")
+    process_and_download(page, 100, "dropped-upscaled.jpg")
 
     # New input formats also work through drop, with missing MIME type information.
     for key in ["alpha_png", "alpha_webp"]:
@@ -285,13 +368,13 @@ def run_browser(playwright, name, base_url, files):
         }""", {"bytes": list(files[key].read_bytes()), "name": files[key].name})
         expect(page.locator("#file-name")).to_have_text(files[key].name)
         expect(page.locator("#compress-button")).to_be_enabled()
-        compress_and_download(page, 100, f"{files[key].stem}-compressed.jpg")
+        process_and_download(page, 100, f"{files[key].stem}-upscaled.jpg")
 
     # All image work so far must have made zero HTTP requests after page load.
     assert not [(method, url) for method, url in requests if url.startswith(("http:", "https:"))], requests
     context.set_offline(True)
     choose(page, files["webp"])
-    compress_and_download(page, 137, "test-photo-compressed.jpg")
+    process_and_download(page, 137, "test-photo-compressed.jpg")
     context.set_offline(False)
 
     # Mobile layout and result controls at narrow widths, including 320 px.
@@ -307,11 +390,13 @@ def run_browser(playwright, name, base_url, files):
     # No server, imports, or network are needed for the direct-open workflow.
     page.goto((ROOT / "index.html").as_uri())
     choose(page, files["png"])
-    compress_and_download(page, 200, "test.graphic-compressed.jpg")
+    process_and_download(page, 200, "test.graphic-compressed.jpg")
     assert not errors, errors
     context.close()
     browser.close()
-    print(f"PASS {name}: all inputs → JPG/PNG/WebP, limits, alpha, animation rejection, downloads, resize, validation, cancel, EXIF, drop, offline, file://, responsive", flush=True)
+    print(f"PASS {name}: all inputs → JPG/PNG/WebP, compress/convert/upscale modes, "
+          f"4×/16 MP/8,192 px/10 MB caps, alpha, animation rejection, downloads, resize, "
+          f"validation, cancel, EXIF, drop, offline, file://, responsive", flush=True)
 
 
 def main():
