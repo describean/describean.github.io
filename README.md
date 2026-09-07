@@ -205,9 +205,18 @@ Run one browser with `python tests/browser_check.py --browser chromium` or
 ## Search engines and link previews
 
 - `index.html` declares a **canonical URL**, **Open Graph** and **Twitter card**
-  tags, and a `WebApplication` **JSON-LD** block. The card image is
+  tags, and `WebSite` / `WebApplication` **JSON-LD** blocks. `WebSite` specifies
+  the preferred search-result site name, **Compress image free**. The card image is
   `assets/og-image.png` (1200 x 630), referenced by absolute URL because social
   crawlers do not resolve relative paths.
+- The favicon uses **img / edit** lettering. `assets/favicon.svg` is the source;
+  `assets/favicon-96.png`, `assets/apple-touch-icon.png`, and root `favicon.ico`
+  are matching raster exports. Update all formats together when changing it.
+  The icon label does not change the site's name. Keep icon URLs stable.
+- After deployment, request indexing of the home page in Google Search Console
+  to prompt recrawling. Search icons and site names may take days or weeks to
+  update; Google decides the final appearance, so these settings do not guarantee
+  a particular name or icon will appear.
 - `robots.txt` allows the site, excludes `tests/` and `test-results/`, and points
   at `sitemap.xml`. Both live in the repository root so Pages serves them at
   `/robots.txt` and `/sitemap.xml`.
