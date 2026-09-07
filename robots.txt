@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /tests/
+Disallow: /test-results/
+
+Sitemap: https://describean.github.io/sitemap.xml

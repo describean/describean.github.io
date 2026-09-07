@@ -155,6 +155,9 @@ default. The mode note and the button label both say so before you click.
 index.html                 Accessible English UI, relative asset paths
 css/styles.css             Responsive styles, no external fonts
 assets/favicon.svg         Small vector brand mark
+assets/og-image.png        1200 x 630 link preview card
+robots.txt                 Crawler rules, points at the sitemap
+sitemap.xml                Single-page sitemap for search engines
 js/image-formats.js        inspectImageFile: signatures and animation checks
 js/image-utils.js          loadImage, formatFileSize, resizeImage,
                           encodeImage, outputFileName, downloadBlob, output formats
@@ -194,6 +197,21 @@ written to `test-results/` (ignored by Git).
 
 Run one browser with `python tests/browser_check.py --browser chromium` or
 `--browser firefox`.
+
+## Search engines and link previews
+
+- `index.html` declares a **canonical URL**, **Open Graph** and **Twitter card**
+  tags, and a `WebApplication` **JSON-LD** block. The card image is
+  `assets/og-image.png` (1200 x 630), referenced by absolute URL because social
+  crawlers do not resolve relative paths.
+- `robots.txt` allows the site, excludes `tests/` and `test-results/`, and points
+  at `sitemap.xml`. Both live in the repository root so Pages serves them at
+  `/robots.txt` and `/sitemap.xml`.
+- All of these hard-code `https://describean.github.io/`. Moving to a custom
+  domain means updating that host in `index.html`, `robots.txt`, and
+  `sitemap.xml`, and adding a `CNAME` file.
+- Submitting the sitemap in Google Search Console and Bing Webmaster Tools is a
+  manual, one-time step; nothing in this repository does it for you.
 
 ## GitHub Pages
 
