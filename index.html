@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Compress a JPG or JPEG image to your target size in KB. Fast, free, and private. Your images never leave your device.">
+    <meta name="theme-color" content="#f7f8fc">
+    <title>Compress JPG to Target Size · describean</title>
+    <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./css/styles.css">
+    <script src="./js/image-utils.js" defer></script>
+    <script src="./js/jpeg-compressor.js" defer></script>
+    <script src="./js/app.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="describean home">
+        <svg class="brand-mark" width="30" height="30" viewBox="0 0 30 30" fill="none" aria-hidden="true"><rect width="30" height="30" rx="9" fill="currentColor"/><path d="M20 7v15h-6a6 6 0 1 1 6-6" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        describean<span class="brand-dot">.</span>
+      </a>
+      <span class="header-note">Small tools. Less hassle.</span>
+    </header>
+
+    <main class="page">
+      <section class="intro" aria-labelledby="page-title">
+        <span class="eyebrow"><span class="small-dot"></span> A little lighter. Just right.</span>
+        <h1 id="page-title">Compress JPG to <span>your target size.</span></h1>
+        <p>Big image, small file limit? Get your JPG under the size you need.</p>
+      </section>
+
+      <form id="compress-form" class="tool-card" novalidate>
+        <div class="tool-columns">
+          <section class="upload-section" aria-labelledby="upload-heading">
+            <h2 class="step-heading" id="upload-heading"><span class="step-number">1</span> Choose your image</h2>
+            <input id="file-input" type="file" accept=".jpg,.jpeg,image/jpeg" hidden>
+            <button id="drop-zone" class="drop-zone" type="button" aria-label="Select a JPG or JPEG image" aria-describedby="file-help privacy-note">
+              <span id="empty-upload" class="upload-content">
+                <span class="upload-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8" cy="8" r="1.5"/><path d="m21 15-5-5L6 21M3 16l4-4 3 3"/></svg></span>
+                <span class="drop-title">Drop your JPG here</span>
+                <span class="drop-subtitle">or choose one from your device</span>
+                <span class="select-label">Select Image <span aria-hidden="true">↑</span></span>
+                <span id="file-help" class="file-help">JPG / JPEG · Up to 50 MB · One image at a time</span>
+              </span>
+              <span id="selected-upload" class="upload-content" hidden>
+                <img id="original-preview" class="original-preview" alt="Selected original image">
+                <span id="file-name" class="file-name"></span>
+                <span id="file-details" class="file-details"></span>
+                <span class="change-label">Change image</span>
+              </span>
+            </button>
+            <div class="privacy-note" id="privacy-note">
+              <svg width="18" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/></svg>
+              <p><strong>Your images never leave your device.</strong><br>All processing happens locally in your browser.</p>
+            </div>
+          </section>
+
+          <section class="settings-section" aria-labelledby="settings-heading">
+            <h2 class="step-heading" id="settings-heading"><span class="step-number">2</span> Set your file size</h2>
+            <label class="input-label" for="target-size">Target size</label>
+            <div class="size-input-wrap">
+              <input id="target-size" name="targetSize" type="number" min="1" max="50000" step="1" inputmode="numeric" value="200" required aria-describedby="target-help target-error">
+              <span class="input-unit">KB</span>
+            </div>
+            <p class="target-help" id="target-help">Your result will be at or below this size.</p>
+            <div class="presets" role="group" aria-label="Quick target sizes">
+              <button type="button" data-target="50" aria-pressed="false">50 KB</button>
+              <button type="button" data-target="100" aria-pressed="false">100 KB</button>
+              <button type="button" data-target="200" aria-pressed="true">200 KB</button>
+              <button type="button" data-target="500" aria-pressed="false">500 KB</button>
+            </div>
+            <p id="target-error" class="field-error" hidden></p>
+            <div class="settings-bottom">
+              <p class="quality-note"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z"/></svg> Quality adjusted automatically</p>
+              <button id="compress-button" class="primary-button" type="submit" disabled><span id="compress-label">Compress Image</span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+              <p class="button-note">Free to use. No sign-up. <span>1 KB = 1,000 bytes.</span></p>
+            </div>
+          </section>
+        </div>
+        <div id="activity" class="activity" hidden>
+          <p id="status" role="status" aria-live="polite"></p>
+          <button id="cancel-button" class="text-button" type="button" hidden>Cancel</button>
+        </div>
+        <p id="error-message" class="error-message" role="alert" hidden></p>
+      </form>
+
+      <section id="result" class="result-card" aria-labelledby="result-heading" tabindex="-1" hidden>
+        <div class="result-header">
+          <div><span class="result-eyebrow">ALL SET</span><h2 id="result-heading">A lighter image. Ready to go.</h2></div>
+          <span id="target-badge" class="success-badge"></span>
+        </div>
+        <div class="result-content">
+          <div class="result-preview-wrap"><img id="compressed-preview" class="result-preview" alt="Compressed image preview"></div>
+          <div class="result-info">
+            <dl class="result-stats">
+              <div><dt>Original</dt><dd id="result-original"></dd></div>
+              <div><dt>Compressed</dt><dd id="result-compressed" class="compressed-size"></dd></div>
+              <div><dt>Reduction</dt><dd id="result-reduction"></dd></div>
+            </dl>
+            <p class="resolution-line">Resolution <span id="result-resolution"></span></p>
+            <p id="result-note" class="result-note"></p>
+            <button id="download-button" class="primary-button download-button" type="button"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4"/></svg> Download Image</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="how-it-works" aria-label="How it works">
+        <p><span>01</span> Choose a JPG</p><span class="step-line" aria-hidden="true"></span>
+        <p><span>02</span> Set a size in KB</p><span class="step-line" aria-hidden="true"></span>
+        <p><span>03</span> Download &amp; done</p>
+      </div>
+      <noscript><p class="error-message">Please enable JavaScript to compress images in your browser.</p></noscript>
+    </main>
+
+    <footer class="site-footer"><span>describean<span class="brand-dot">.</span></span><p>A little less file. A little more room.</p><span class="footer-local"><span class="small-dot"></span> Made to work locally</span></footer>
+  </body>
+</html>
