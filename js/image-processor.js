@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const { resizeImage, encodeJPEG } = window.Describean;
+  const { resizeImage, encodeImage, getOutputFormat } = window.Describean;
   const MIN_QUALITY = 0.1;
   const MAX_QUALITY = 1;
   const SEARCH_ITERATIONS = 10;
@@ -20,16 +20,21 @@
     }
   }
 
-  async function findBestJPEGQuality(canvas, targetBytes, { signal } = {}) {
+  async function findBestQuality(canvas, targetBytes, format, { signal, minQuality = MIN_QUALITY } = {}) {
     validateTarget(targetBytes);
     async function encode(quality) {
       checkCancelled(signal);
-      const blob = await encodeJPEG(canvas, quality);
+      const blob = await encodeImage(canvas, format, quality);
       checkCancelled(signal);
       return blob;
     }
 
-    let low = MIN_QUALITY;
+    // PNG has no Canvas quality control. Keep its pixels lossless at this resolution.
+    if (format === "png") {
+      const blob = await encode();
+      return blob.size <= targetBytes ? { blob, quality: null } : null;
+    }
+    let low = minQuality;
     let high = MAX_QUALITY;
     const smallest = await encode(low);
     if (smallest.size > targetBytes) return null;
@@ -53,14 +58,15 @@
     return best;
   }
 
-  async function compressJPEG(source, originalFile, targetBytes, { signal, onProgress = () => {} } = {}) {
+  async function compressImage(source, originalFile, targetBytes, format, { signal, onProgress = () => {} } = {}) {
     validateTarget(targetBytes);
+    const output = getOutputFormat(format);
     checkCancelled(signal);
-    // PNG/WebP must be encoded as JPEG even when the input already fits the budget.
-    if (source.format === "jpeg" && originalFile.size <= targetBytes) {
+    // Passthrough is only valid when both the format and byte budget already match.
+    if (source.format === format && originalFile.size <= targetBytes) {
       return {
-        blob: originalFile.slice(0, originalFile.size, "image/jpeg"), width: source.width, height: source.height,
-        quality: null, unchanged: true,
+        blob: originalFile.slice(0, originalFile.size, output.mimeType), width: source.width, height: source.height,
+        quality: null, unchanged: true, format,
       };
     }
 
@@ -78,13 +84,13 @@
         await new Promise((resolve) => setTimeout(resolve, 0));
         checkCancelled(signal);
         // Draw from the decoded original each time to avoid cumulative resampling.
-        resizeImage(source.image, width, height, canvas);
-        const best = await findBestJPEGQuality(canvas, targetBytes, { signal });
+        resizeImage(source.image, width, height, canvas, { preserveAlpha: output.alpha });
+        const best = await findBestQuality(canvas, targetBytes, format, { signal });
         if (best) {
-          return { ...best, width, height, unchanged: false };
+          return { ...best, width, height, unchanged: false, format };
         }
         if (width === 1 && height === 1) {
-          throw new Error("This target is too small for a JPEG file. Please increase the target size.");
+          throw new Error(`This target is too small for a ${output.label} file. Please increase the target size.`);
         }
         scale *= RESIZE_FACTOR;
         width = Math.max(1, Math.floor(source.width * scale));
@@ -97,5 +103,5 @@
     }
   }
 
-  window.Describean = { ...window.Describean, findBestJPEGQuality, compressJPEG };
+  window.Describean = { ...window.Describean, findBestQuality, compressImage };
 })();

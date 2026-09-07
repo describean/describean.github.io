@@ -1,12 +1,13 @@
 (() => {
   "use strict";
 
-  const { loadImage, formatFileSize, compressJPEG, compressedFileName, downloadBlob } = window.Describean;
+  const { loadImage, formatFileSize, compressImage, outputFileName, downloadBlob, getOutputFormat, supportsOutputFormat } = window.Describean;
   const $ = (id) => document.getElementById(id);
   const form = $("compress-form");
   const input = $("file-input");
   const dropZone = $("drop-zone");
   const targetInput = $("target-size");
+  const formatInput = $("output-format");
   const presets = [...document.querySelectorAll("[data-target]")];
   let source = null;
   let originalFile = null;
@@ -22,6 +23,7 @@
     input.disabled = busy;
     dropZone.disabled = busy;
     targetInput.disabled = busy;
+    formatInput.disabled = busy;
     presets.forEach((button) => { button.disabled = busy; });
     $("compress-button").disabled = busy || !source;
     $("compress-label").textContent = controller ? "Compressing…" : loading ? "Opening image…" : "Compress Image";
@@ -67,6 +69,25 @@
       button.setAttribute("aria-pressed", String(Number(button.dataset.target) === Number(targetInput.value)));
     });
   }
+
+  function formatChanged() {
+    clearResult();
+    showError();
+    setStatus("");
+    $("output-note").textContent = formatInput.value === "jpeg"
+      ? "Transparent areas become white."
+      : formatInput.value === "png"
+        ? "Keeps transparency. Resolution may decrease to fit the size limit."
+        : "Keeps transparency. Quality is adjusted to fit the size limit.";
+  }
+
+  for (const option of formatInput.options) {
+    if (!supportsOutputFormat(option.value)) {
+      option.disabled = true;
+      option.textContent += " (not supported in this browser)";
+    }
+  }
+  formatInput.addEventListener("change", formatChanged);
 
   async function selectFiles(files) {
     if (!files.length || controller || loading) return;
@@ -178,7 +199,9 @@
     setStatus("Finding the best quality for your target size…");
 
     try {
-      result = await compressJPEG(source, originalFile, targetBytes, {
+      const format = formatInput.value;
+      const output = getOutputFormat(format);
+      result = await compressImage(source, originalFile, targetBytes, format, {
         signal: controller.signal,
         onProgress({ width, height, resized }) {
           setStatus(resized
@@ -188,13 +211,14 @@
       });
       // Keep the download guarantee independent of the search implementation.
       if (result.blob.size > targetBytes) throw new Error("The result exceeds your target. Please try again.");
-      if (result.blob.type !== "image/jpeg") throw new Error("The JPG output could not be created. Please try again.");
+      if (result.blob.type !== output.mimeType) throw new Error(`The ${output.label} output could not be created. Please try again.`);
       resultURL = URL.createObjectURL(result.blob);
       $("compressed-preview").src = resultURL;
       $("result-original").textContent = formatFileSize(originalFile.size);
       $("result-original").title = `${originalFile.size.toLocaleString("en")} bytes`;
       $("result-compressed").textContent = formatFileSize(result.blob.size);
       $("result-compressed").title = `${result.blob.size.toLocaleString("en")} bytes`;
+      $("result-format-label").textContent = `Output ${output.label}`;
       const reduction = (1 - result.blob.size / originalFile.size) * 100;
       const increased = result.blob.size > originalFile.size;
       $("result-change-label").textContent = increased ? "Size increase" : "Reduction";
@@ -206,13 +230,15 @@
         ? "Already within your target. Your original image is ready to download without any quality loss."
         : resized
           ? "Resolution reduced to meet your target. Image proportions are preserved."
-          : "Original resolution preserved. Your JPG is ready to download."];
-      if (source.format !== "jpeg") notes.push(`Converted from ${source.format === "png" ? "PNG" : "WebP"} to JPG. Transparent areas become white.`);
-      if (increased) notes.push("JPG conversion made this file larger, but it is still within your target size.");
+          : `Original resolution preserved. Your ${output.label} is ready to download.`];
+      if (source.format !== format) notes.push(`Converted from ${getOutputFormat(source.format).label} to ${output.label}.`);
+      if (format === "jpeg" && source.format !== "jpeg") notes.push("Transparent areas became white.");
+      if (output.alpha) notes.push("Transparency is preserved.");
+      if (increased) notes.push("Format conversion made this file larger, but it is still within your target size.");
       $("result-note").textContent = notes.join(" ");
       $("result").hidden = false;
       setStatus(result.unchanged ? "Your image already meets the target size."
-        : increased ? "Done. Your JPG is within the target size."
+        : increased ? `Done. Your ${output.label} is within the target size.`
           : `Done. Your image is ${reduction.toFixed(1)}% smaller.`);
       $("result").focus({ preventScroll: true });
     } catch (error) {
@@ -231,7 +257,7 @@
 
   $("cancel-button").addEventListener("click", () => controller?.abort());
   $("download-button").addEventListener("click", () => {
-    if (result && originalFile) downloadBlob(result.blob, compressedFileName(originalFile.name));
+    if (result && originalFile) downloadBlob(result.blob, outputFileName(originalFile.name, result.format));
   });
 
   updateControls();

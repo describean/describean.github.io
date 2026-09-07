@@ -1,7 +1,7 @@
 # Compress image free · Images to target size
 
 A small, English-language image tool. Choose one JPG, JPEG, JFIF, PNG, or WebP,
-enter a target in KB, and download a JPG that fits. No backend, build step, runtime
+enter a target in KB, and download a JPG, PNG, or WebP that fits. No backend, build step, runtime
 dependencies, analytics, ads, or image uploads.
 
 ## Run locally
@@ -23,9 +23,9 @@ Visit **http://localhost:8000**. Stop the server with `Ctrl+C`.
 1. Drop a JPG, JPEG, JFIF, PNG, or WebP into the upload area, or click **Select Image**.
 2. Review its name, oriented pixel dimensions, and original file size.
 3. Enter a whole number from **1 to 50,000 KB**, or choose 50 / 100 / 200 / 500 KB.
-4. Click **Compress Image**. You can cancel while it is processing.
+4. Choose **JPG**, **PNG**, or **WebP** output and click **Compress Image**. You can cancel while it is processing.
 5. Review the preview, actual size, size change, and before/after resolution.
-6. Click **Download Image** to save `original-name-compressed.jpg`.
+6. Click **Download Image** to save `original-name-compressed.jpg`, `.png`, or `.webp`.
 
 The default target is **200 KB**. **1 KB = 1,000 bytes** and **1 MB = 1,000,000
 bytes** throughout the app. This is a conservative byte budget for upload forms
@@ -34,27 +34,32 @@ download is checked against the exact byte limit.
 
 ## Compression behavior
 
-- **Output is always JPG.** PNG and WebP are converted even when the original
-  already fits the target. Transparent areas are composited onto **white**, including
-  partial transparency. This is not a tool for preserving PNG/WebP output formats.
-- A JPEG image (`.jpg`, `.jpeg`, or `.jfif`) already at or below the target is
-  returned with unchanged bytes, pixels, and metadata. It is downloaded with the
-  `-compressed.jpg` filename and the correct `image/jpeg` MIME type.
-- Conversion can make a small PNG/WebP larger while still meeting the target.
+- **Output is selectable: JPG, PNG, or WebP.** The default is JPG. JPG composites
+  transparent areas onto **white**; PNG and WebP preserve transparency, including
+  partial transparency. Unsupported browser encoders are disabled in the selector,
+  and actual output MIME types are verified to prevent silent format fallback.
+- An input already in the selected output format and at or below the target is
+  returned with unchanged bytes, pixels, and metadata. JPEG includes `.jpg`,
+  `.jpeg`, and `.jfif`; its output filename uses `.jpg`.
+- Format conversion can make a small input larger while still meeting the target.
   The UI reports **Size increase** in this case instead of claiming a reduction.
-- At each resolution, `findBestJPEGQuality()` tests quality 0.1 and 1.0, then
+- For JPG and WebP, `findBestQuality()` tests quality 0.1 and 1.0 at each resolution, then
   performs **10 binary search iterations** if the target falls between them. It
   keeps the highest tested quality whose actual encoded Blob fits the budget.
-- If quality 0.1 still exceeds the limit, `compressJPEG()` reduces dimensions by
+- If quality 0.1 still exceeds the limit, `compressImage()` reduces dimensions by
   a factor of **0.9** and searches again. The aspect ratio is retained, subject to
   integer-pixel rounding. Each resize is drawn from the decoded original.
 - This policy prioritizes resolution until the quality floor is reached. It is
   a practical heuristic, not a guarantee of the best perceptual quality across
   every possible quality/resolution combination.
-- Browser JPEG encoders quantize quality and produce different results. Files
+- PNG has no Canvas quality setting. It is encoded losslessly at each resolution;
+  if it exceeds the target, dimensions are reduced by 0.9 until it fits. A small
+  PNG target can require more resolution loss than JPG or WebP. No palette
+  quantization or external PNG optimizer is used.
+- Browser image encoders quantize quality and produce different results. Files
   can be smaller than the requested size; the limit is a ceiling, not an exact
   output size.
-- Re-encoding uses the browser Canvas JPEG encoder. Source EXIF metadata is not
+- Re-encoding uses the browser Canvas encoder. Source EXIF metadata is not
   copied; orientation is applied by the browser decoder. This is not a DPI or
   metadata preservation tool.
 
@@ -72,8 +77,8 @@ download is checked against the exact byte limit.
   can still prevent some large images from opening.
 - To bound canvas memory, re-encoded images above **16 megapixels** or **8,192
   pixels on one side** are initially scaled down. The resulting dimensions are
-  shown in the results. Only JPEG inputs already within the target bypass canvas.
-- Extremely small budgets that cannot hold even a 1×1 JPEG return an error.
+  shown in the results. Same-format inputs already within the target bypass canvas.
+- Extremely small budgets that cannot hold even a 1×1 output image return an error.
 - Cancel takes effect between asynchronous encoding operations; an in-flight
   browser decode or encode cannot be interrupted immediately.
 - Images are only read through local File/Blob URLs. There are no `fetch`, XHR,
@@ -82,7 +87,7 @@ download is checked against the exact byte limit.
   Processing continues offline once the page assets have loaded. An offline
   reload is not guaranteed; there is no service worker.
 - Modern Chrome/Edge, Firefox, and Safari support the required APIs. Mobile
-  device behavior and JPEG encoding results can vary.
+  device behavior and image encoding results can vary.
 
 ## Structure
 
@@ -92,14 +97,14 @@ css/styles.css             Responsive styles, no external fonts
 assets/favicon.svg         Small vector brand mark
 js/image-formats.js        inspectImageFile: signatures and animation checks
 js/image-utils.js          loadImage, formatFileSize, resizeImage,
-                          encodeJPEG, compressedFileName, downloadBlob
-js/jpeg-compressor.js      findBestJPEGQuality, compressJPEG
+                          encodeImage, outputFileName, downloadBlob, output formats
+js/image-processor.js      findBestQuality, compressImage
 js/app.js                  File selection, UI state, validation, results
 tests/browser_check.py     Optional real-browser integration checks
 .nojekyll                  Skip Jekyll processing on GitHub Pages
 ```
 
-Add future image tools as separate scripts alongside `jpeg-compressor.js` and
+Add future image tools as separate scripts alongside `image-processor.js` and
 reuse `image-utils.js`. Keep format-specific encoding separate from UI state.
 
 ## Browser checks (optional development dependencies)
@@ -117,11 +122,12 @@ python tests/browser_check.py
 On Linux, Playwright may need browser system packages; its installation output
 identifies any missing libraries. The test starts and stops its own static server
 on an available loopback port and generates JPEG/JFIF, PNG, and WebP fixtures in a
-temporary directory. It checks real downloaded JPEG bytes and dimensions, preset
+temporary directory. It checks actual JPG/PNG/WebP formats, downloaded bytes and dimensions, preset
 size limits, transparent and partially transparent pixels, palette PNG, animation
 rejection, incorrect file signatures and MIME types, automatic resizing, invalid
 input, cancellation, EXIF orientation, local file access, offline processing, and
-desktop/mobile overflow. Screenshots are
+desktop/mobile overflow. Cross-format PNG/WebP alpha preservation and JPG white
+backgrounds are checked using decoded output pixels. Screenshots are
 written to `test-results/` (ignored by Git).
 
 Run one browser with `python tests/browser_check.py --browser chromium` or

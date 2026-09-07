@@ -5,6 +5,27 @@
   const MAX_FILE_BYTES = 50 * 1000 * 1000;
   const MAX_IMAGE_PIXELS = 40 * 1000 * 1000;
   const { inspectImageFile } = window.Describean;
+  const OUTPUT_FORMATS = Object.freeze({
+    jpeg: { label: "JPG", extension: "jpg", mimeType: "image/jpeg", alpha: false },
+    png: { label: "PNG", extension: "png", mimeType: "image/png", alpha: true },
+    webp: { label: "WebP", extension: "webp", mimeType: "image/webp", alpha: true },
+  });
+
+  function getOutputFormat(format) {
+    if (!Object.hasOwn(OUTPUT_FORMATS, format)) throw new Error("Choose JPG, PNG, or WebP as the output format.");
+    return OUTPUT_FORMATS[format];
+  }
+
+  function supportsOutputFormat(format) {
+    const { mimeType } = getOutputFormat(format);
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    try {
+      return canvas.toDataURL(mimeType).startsWith(`data:${mimeType};`);
+    } catch {
+      return false;
+    }
+  }
 
   function formatFileSize(bytes) {
     if (bytes < 1000) return `${bytes} B`;
@@ -48,33 +69,36 @@
     }
   }
 
-  function resizeImage(image, width, height, canvas = document.createElement("canvas")) {
+  function resizeImage(image, width, height, canvas = document.createElement("canvas"), { preserveAlpha = false } = {}) {
     canvas.width = Math.max(1, Math.round(width));
     canvas.height = Math.max(1, Math.round(height));
-    const context = canvas.getContext("2d", { alpha: false });
+    const context = canvas.getContext("2d", { alpha: true });
     if (!context) throw new Error("Your browser could not prepare this image. Please try a smaller image.");
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    context.fillStyle = "#fff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
+    if (!preserveAlpha) {
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    }
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
     return canvas;
   }
 
-  function encodeJPEG(canvas, quality) {
+  function encodeImage(canvas, format, quality) {
+    const { mimeType, label } = getOutputFormat(format);
     return new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {
-        if (!blob || !blob.size || blob.type !== "image/jpeg") {
-          reject(new Error("Your browser could not create the JPG output. Please try a smaller image or another browser."));
+        if (!blob || !blob.size || blob.type !== mimeType) {
+          reject(new Error(`Your browser could not create ${label} output. Please choose another format or a smaller image.`));
           return;
         }
         resolve(blob);
-      }, "image/jpeg", quality);
+      }, mimeType, quality);
     });
   }
 
-  function compressedFileName(name) {
-    return `${name.replace(/\.(jpe?g|jfif|png|webp)$/i, "") || "image"}-compressed.jpg`;
+  function outputFileName(name, format, action = "compressed") {
+    return `${name.replace(/\.(jpe?g|jfif|png|webp)$/i, "") || "image"}-${action}.${getOutputFormat(format).extension}`;
   }
 
   function downloadBlob(blob, name) {
@@ -91,6 +115,7 @@
 
   window.Describean = {
     ...window.Describean,
-    formatFileSize, loadImage, resizeImage, encodeJPEG, compressedFileName, downloadBlob,
+    OUTPUT_FORMATS, getOutputFormat, supportsOutputFormat,
+    formatFileSize, loadImage, resizeImage, encodeImage, outputFileName, downloadBlob,
   };
 })();

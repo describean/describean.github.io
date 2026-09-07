@@ -85,7 +85,8 @@ def choose(page, path):
     expect(page.locator("#compress-button")).to_be_enabled()
 
 
-def compress_and_download(page, target, expected_name, *, preset=False):
+def compress_and_download(page, target, expected_name, *, preset=False, output_format="jpeg"):
+    page.locator("#output-format").select_option(output_format)
     if preset:
         page.locator(f'[data-target="{target}"]').click()
     else:
@@ -100,7 +101,7 @@ def compress_and_download(page, target, expected_name, *, preset=False):
     data = Path(download.path()).read_bytes()
     assert 0 < len(data) <= target * 1000, (target, len(data))
     with Image.open(io.BytesIO(data)) as image:
-        assert image.format == "JPEG"
+        assert image.format == {"jpeg": "JPEG", "png": "PNG", "webp": "WEBP"}[output_format]
         image.load()
         dimensions = image.size
     return data, dimensions
@@ -125,7 +126,7 @@ def run_browser(playwright, name, base_url, files):
     expect(page.locator("#target-size")).to_have_value("200")
     expect(page.locator('[data-target="200"]')).to_have_attribute("aria-pressed", "true")
     expect(page.locator("#page-title")).to_contain_text("Compress images")
-    expect(page.locator("#output-note")).to_contain_text("Output: JPG")
+    expect(page.locator("#output-format")).to_have_value("jpeg")
     expect(page.locator("#file-help")).to_contain_text("JPG / JPEG / JFIF / PNG / WebP")
     assert_no_overflow(page)
     page.screenshot(path=str(OUTPUT / f"{name}-desktop.png"), full_page=True)
@@ -191,6 +192,27 @@ def run_browser(playwright, name, base_url, files):
             assert 110 < blue[0] < 145 and 110 < blue[1] < 145 and blue[2] > 240
     print("  Transparency: RGBA PNG, palette PNG, and WebP flattened to white", flush=True)
 
+    # Every supported input can be exported as each output format, with real byte limits.
+    for key in ["photo", "png", "webp", "jfif"]:
+        choose(page, files[key])
+        for output_format in ["png", "webp"]:
+            data, size = compress_and_download(page, 50, f"{files[key].stem}-compressed.{output_format}", output_format=output_format)
+            assert size[0] <= 1600 and size[1] <= 1200
+            print(f"  {key} → {output_format}: {len(data)} bytes, {size[0]}×{size[1]}", flush=True)
+    # Cross-format alpha encoding, not merely same-format passthrough.
+    for key, output_format in [("alpha_png", "webp"), ("alpha_webp", "png"), ("palette_png", "webp")]:
+        choose(page, files[key])
+        data, size = compress_and_download(page, 200, f"{files[key].stem}-compressed.{output_format}", output_format=output_format)
+        assert size == (120, 80)
+        with Image.open(io.BytesIO(data)) as converted:
+            rgba = converted.convert("RGBA")
+            assert rgba.getpixel((10, 10))[3] == 0
+            assert 120 <= rgba.getpixel((15, 40))[3] <= 135
+            assert rgba.getpixel((60, 40))[3] == 255
+    page.locator("#output-format").select_option("jpeg")
+    expect(page.locator("#result")).to_be_hidden()
+    expect(page.locator("#output-note")).to_contain_text("become white")
+
     # JFIF with an unhelpful OS MIME type still uses the JPEG passthrough correctly.
     page.locator("#file-input").set_input_files({
         "name": "tiny.JFIF", "mimeType": "application/octet-stream", "buffer": files["tiny"].read_bytes(),
@@ -207,6 +229,7 @@ def run_browser(playwright, name, base_url, files):
     page.locator('[data-target="50"]').click()
     page.locator("#compress-button").click()
     expect(page.locator("#target-size")).to_be_disabled()
+    expect(page.locator("#output-format")).to_be_disabled()
     page.locator("#cancel-button").click()
     expect(page.locator("#status")).to_contain_text("cancelled", timeout=30_000)
     expect(page.locator("#result")).to_be_hidden()
@@ -288,7 +311,7 @@ def run_browser(playwright, name, base_url, files):
     assert not errors, errors
     context.close()
     browser.close()
-    print(f"PASS {name}: JPG/JPEG/JFIF/PNG/WebP, limits, alpha, animation rejection, downloads, resize, validation, cancel, EXIF, drop, offline, file://, responsive", flush=True)
+    print(f"PASS {name}: all inputs → JPG/PNG/WebP, limits, alpha, animation rejection, downloads, resize, validation, cancel, EXIF, drop, offline, file://, responsive", flush=True)
 
 
 def main():

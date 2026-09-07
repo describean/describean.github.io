@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Compress JPG, JPEG, JFIF, PNG, and WebP images to your target size in KB. Download a JPG, with all processing kept on your device. Free and private.">
+    <meta name="description" content="Compress JPG, JPEG, JFIF, PNG, and WebP images to your target size in KB. Choose JPG, PNG, or WebP output. Free, private, and entirely in your browser.">
     <meta name="theme-color" content="#f7f8fc">
     <title>Compress Images to Target Size · Compress image free</title>
     <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./css/styles.css">
     <script src="./js/image-formats.js" defer></script>
     <script src="./js/image-utils.js" defer></script>
-    <script src="./js/jpeg-compressor.js" defer></script>
+    <script src="./js/image-processor.js" defer></script>
     <script src="./js/app.js" defer></script>
   </head>
   <body>
@@ -24,7 +24,7 @@
       <section class="intro" aria-labelledby="page-title">
         <span class="eyebrow"><span class="small-dot"></span> A little lighter. Just right.</span>
         <h1 id="page-title">Compress images to <span>your target size.</span></h1>
-        <p>Big image, small file limit? Get a JPG that fits the size you need.</p>
+        <p>Your image, your format. Get a file that fits the size you need.</p>
       </section>
 
       <form id="compress-form" class="tool-card" novalidate>
@@ -68,7 +68,13 @@
               <button type="button" data-target="500" aria-pressed="false">500 KB</button>
             </div>
             <p id="target-error" class="field-error" hidden></p>
-            <p class="output-note" id="output-note"><strong>Output: JPG</strong><br>Transparent areas become white.</p>
+            <label class="input-label output-label" for="output-format">Output format</label>
+            <select id="output-format" aria-describedby="output-note">
+              <option value="jpeg">JPG</option>
+              <option value="png">PNG</option>
+              <option value="webp">WebP</option>
+            </select>
+            <p class="output-note" id="output-note">Transparent areas become white.</p>
             <div class="settings-bottom">
               <p class="quality-note"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z"/></svg> Quality adjusted automatically</p>
               <button id="compress-button" class="primary-button" type="submit" disabled><span id="compress-label">Compress Image</span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
@@ -93,7 +99,7 @@
           <div class="result-info">
             <dl class="result-stats">
               <div><dt>Original</dt><dd id="result-original"></dd></div>
-              <div><dt>Output JPG</dt><dd id="result-compressed" class="compressed-size"></dd></div>
+              <div><dt id="result-format-label">Output JPG</dt><dd id="result-compressed" class="compressed-size"></dd></div>
               <div><dt id="result-change-label">Reduction</dt><dd id="result-reduction"></dd></div>
             </dl>
             <p class="resolution-line">Resolution <span id="result-resolution"></span></p>
