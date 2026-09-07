@@ -148,7 +148,7 @@
         let low = originalEdge + 1;
         let high = maxEdge - 1;
         // Bounded so a 16 MP upscale cannot spend an unbounded number of
-        // full-resolution encodes; it still lands within about a dozen pixels.
+        // full-resolution encodes; the remaining interval is at most about 24 pixels.
         for (let iteration = 0; iteration < UPSCALE_SEARCH_ITERATIONS && low <= high; iteration += 1) {
           const edge = Math.floor((low + high) / 2);
           const candidate = await encodeAtEdge(edge);
@@ -159,6 +159,12 @@
             high = edge - 1;
           }
         }
+      }
+      if (!best) {
+        // A bounded search can stop above a feasible one-pixel enlargement.
+        // Check this boundary before declaring that the budget cannot fit any upscale.
+        const minimum = await encodeAtEdge(originalEdge + 1);
+        if (minimum.blob.size <= targetBytes) best = minimum;
       }
       if (!best) {
         throw new Error(`This image cannot be enlarged as ${output.label} within this target. Try a higher target (up to 10 MB) or another output format.`);

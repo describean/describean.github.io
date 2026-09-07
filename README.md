@@ -93,8 +93,8 @@ default. The mode note and the button label both say so before you click.
 - Upscaling **resamples pixels with the browser Canvas interpolator**. It adds
   pixels; it does not reconstruct detail that the original does not contain.
   This is not a machine-learning super-resolution tool.
-- `upscaleImage()` computes the largest allowed edge from three caps, then finds
-  the largest resolution whose actual encoded Blob fits the target:
+- `upscaleImage()` computes the largest allowed edge from three caps, then keeps
+  the largest tested resolution whose actual encoded Blob fits the target:
 
   | Cap | Value |
   | --- | --- |
@@ -107,7 +107,10 @@ default. The mode note and the button label both say so before you click.
   used. Otherwise it binary-searches integer edge lengths for at most **8
   iterations**, keeping only candidates whose encoded Blob fits. The bound keeps
   a 16 MP upscale from spending an unbounded number of full-resolution encodes,
-  and it lands within roughly a dozen pixels of the best edge.
+  leaving an interval of at most about 24 pixels. If no candidate fits, the
+  smallest enlargement (one extra pixel on the longest side) is checked before
+  rejecting the request. This avoids false failures for tight but feasible budgets
+  while limiting the dimension search to at most **10 encodes** in total.
 - The search encodes at a **quality floor of 0.8** so that resolution is not
   bought by destroying image quality. Once the resolution is fixed,
   `findBestQuality()` raises quality back up within the same budget.
@@ -181,6 +184,7 @@ source .venv/bin/activate
 python -m pip install playwright Pillow
 python -m playwright install chromium firefox
 python tests/browser_check.py
+python tests/upscale_boundary_check.py
 ```
 
 On Linux, Playwright may need browser system packages; its installation output
